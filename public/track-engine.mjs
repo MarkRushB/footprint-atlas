@@ -1,7 +1,7 @@
 export const PALETTE = [[97,233,255,235],[123,131,255,235],[179,104,255,240],[255,79,180,245],[255,135,200,240]];
 
 export function validateData(buffer, meta) {
-  if (meta.version !== 2 || meta.stride !== 5 || buffer.byteLength !== meta.count * 20) throw new Error('数据包版本或条数不匹配，请重新加载。');
+  if (![2, 3].includes(meta.version) || meta.stride !== 5 || buffer.byteLength !== meta.count * 20) throw new Error('数据包版本或条数不匹配，请重新加载。');
   return new DataView(buffer);
 }
 
@@ -62,6 +62,32 @@ export function makeHeatData(result) {
     groups[bucket].push([result.ground[i * 2], result.ground[i * 2 + 1]]);
   }
   for (let i = 0; i < result.flightCount; i++) groups[5].push([result.flights[i * 2], result.flights[i * 2 + 1]]);
+  const features = groups.flatMap((coordinates, bucket) => coordinates.length ? [{ type: 'Feature',
+    properties: { kind: bucket === 5 ? 'flight' : 'ground', bucket }, geometry: { type: 'MultiPoint', coordinates } }] : []);
+  return { type: 'FeatureCollection', features };
+}
+
+export function combineSelections(parts) {
+  const sum = key => parts.reduce((total, part) => total + part[key], 0);
+  const mergeBounds = key => {
+    const values = parts.map(part => part[key]).filter(Boolean);
+    return values.length ? [Math.min(...values.map(value => value[0])), Math.min(...values.map(value => value[1])),
+      Math.max(...values.map(value => value[2])), Math.max(...values.map(value => value[3]))] : null;
+  };
+  return { count: sum('count'), groundCount: sum('groundCount'), flightCount: sum('flightCount'), days: sum('days'),
+    groundDays: sum('groundDays'), flightDays: sum('flightDays'), unknownAltitude: sum('unknownAltitude'),
+    bounds: mergeBounds('bounds'), groundBounds: mergeBounds('groundBounds'), flightBounds: mergeBounds('flightBounds') };
+}
+
+export function makeCombinedHeatData(parts) {
+  const groups = Array.from({ length: 6 }, () => []);
+  for (const result of parts) {
+    for (let i = 0; i < result.groundCount; i++) {
+      const bucket = PALETTE.findIndex(color => color[0] === result.colors[i * 4]);
+      groups[bucket].push([result.ground[i * 2], result.ground[i * 2 + 1]]);
+    }
+    for (let i = 0; i < result.flightCount; i++) groups[5].push([result.flights[i * 2], result.flights[i * 2 + 1]]);
+  }
   const features = groups.flatMap((coordinates, bucket) => coordinates.length ? [{ type: 'Feature',
     properties: { kind: bucket === 5 ? 'flight' : 'ground', bucket }, geometry: { type: 'MultiPoint', coordinates } }] : []);
   return { type: 'FeatureCollection', features };

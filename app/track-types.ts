@@ -5,6 +5,7 @@ export type TrackMeta = {
   minTime: number; maxTime: number; minLon: number; minLat: number; maxLon: number; maxLat: number;
   minAltitude: number; maxAltitude: number; missingAltitude: number; missingSpeed: number;
   days: { date: string; count: number }[];
+  shards?: { year: number; count: number; byteLength: number; binary: string; compressedBinary: string; compressedByteLength: number; minTime: number; maxTime: number }[];
 };
 export type Filters = { start: string; end: string; altitude: number; speedAssist: boolean; speed: number };
 export type Appearance = {
@@ -14,10 +15,11 @@ export type Appearance = {
   mapStyle: 'dark' | 'light' | 'satellite' | 'outdoors';
 };
 export type Selection = {
-  revision: number; count: number; groundCount: number; flightCount: number; days: number;
+  revision: number; renderId: number; count: number; groundCount: number; flightCount: number; days: number;
   groundDays: number; flightDays: number;
   unknownAltitude: number; bounds: [number, number, number, number] | null; milliseconds: number; blob: Blob;
   groundBounds: [number, number, number, number] | null; flightBounds: [number, number, number, number] | null;
+  complete: boolean; loadedShards: number; totalShards: number; loadedPoints: number; totalPoints: number;
 };
 export const DEFAULT_FILTERS: Filters = { start: '', end: '', altitude: 2000, speedAssist: true, speed: 55 };
 export const DEFAULT_APPEARANCE: Appearance = {

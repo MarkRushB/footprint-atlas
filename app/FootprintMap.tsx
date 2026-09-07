@@ -8,7 +8,7 @@ const MAP_STYLES = {
   dark: 'mapbox://styles/mapbox/dark-v11', light: 'mapbox://styles/mapbox/light-v11',
   satellite: 'mapbox://styles/mapbox/satellite-streets-v12', outdoors: 'mapbox://styles/mapbox/outdoors-v12',
 } as const;
-type Props = { selection: Selection | null; appearance: Appearance; onReady: (map: MapboxMap) => void; onDataReady: (revision: number) => void; onError: (message: string) => void };
+type Props = { selection: Selection | null; appearance: Appearance; onReady: (map: MapboxMap) => void; onDataReady: (renderId: number) => void; onError: (message: string) => void };
 
 export function FootprintMap({ selection, appearance, onReady, onDataReady, onError }: Props) {
   const root = useRef<HTMLDivElement>(null), mapRef = useRef<MapboxMap | null>(null);
@@ -69,7 +69,7 @@ export function FootprintMap({ selection, appearance, onReady, onDataReady, onEr
     const finish = () => {
       if (finished) return;
       finished = true;
-      callbacks.current.onDataReady(selection.revision);
+      callbacks.current.onDataReady(selection.renderId);
     };
     const loaded = (event: mapboxgl.MapSourceDataEvent) => {
       // "content" means the new GeoJSON has reached Mapbox's source worker.

@@ -29,19 +29,20 @@ export default function Home() {
   const [preferencesReady,setPreferencesReady] = useState(false), [activeTab,setActiveTab] = useState<DockTab | null>(null);
   const [dateMode,setDateMode] = useState<'range'|'day'>('range'), [calendarMonth,setCalendarMonth] = useState('');
   const [placeStats,setPlaceStats] = useState<PlaceStats | null>(null), [map,setMap] = useState<MapboxMap | null>(null);
-  const [mapError,setMapError] = useState(''), [renderedRevision,setRenderedRevision] = useState(-1);
+  const [mapError,setMapError] = useState(''), [renderedRenderId,setRenderedRenderId] = useState(-1);
   const { meta,selection,pending,error } = useTracks(filters);
   const ready = useCallback((instance:MapboxMap) => setMap(instance),[]);
-  const dataReady = useCallback((revision:number) => { setRenderedRevision(revision); setMapError(''); },[]);
+  const dataReady = useCallback((renderId:number) => { setRenderedRenderId(renderId); setMapError(''); },[]);
   const reportError = useCallback((message:string) => setMapError(message),[]);
   useEffect(() => { setAppearance(loadAppearance()); setPreferencesReady(true); fetch(new URL('place-stats.json',document.baseURI)).then(value => value.json() as Promise<PlaceStats>).then(setPlaceStats).catch(() => {}); },[]);
   useEffect(() => { if (!calendarMonth && meta) setCalendarMonth(day(meta.maxTime).slice(0,7)); },[calendarMonth,meta]);
-  useEffect(() => { setRenderedRevision(-1); },[appearance.mapStyle]);
+  useEffect(() => { setRenderedRenderId(-1); },[appearance.mapStyle]);
   useEffect(() => { const close=(event:KeyboardEvent)=>{if(event.key==='Escape')setActiveTab(null);};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close); },[]);
   useEffect(() => { if(!preferencesReady)return;const timer=setTimeout(()=>{try{localStorage.setItem(STORAGE,JSON.stringify(appearance));}catch{}},250);return()=>clearTimeout(timer); },[appearance,preferencesReady]);
 
   const update = <K extends keyof Appearance>(key:K,value:Appearance[K]) => setAppearance(previous => ({...previous,[key]:value}));
-  const busy = pending || !!selection && selection.revision !== renderedRevision;
+  const busy = pending || !!selection && selection.renderId !== renderedRenderId;
+  const hydrating = !!selection && !selection.complete;
   const visibleCount = selection ? appearance.flights === 'hide' ? selection.groundCount : appearance.flights === 'only' ? selection.flightCount : selection.count : undefined;
   const visibleDays = selection ? appearance.flights === 'hide' ? selection.groundDays : appearance.flights === 'only' ? selection.flightDays : selection.days : undefined;
   const minDate = meta ? day(meta.minTime) : '', maxDate = meta ? day(meta.maxTime) : '';
@@ -57,7 +58,7 @@ export default function Home() {
     <section className="map-stage">
       <Suspense fallback={<div className="loader">正在启动地图…</div>}><FootprintMap selection={selection} appearance={appearance} onReady={ready} onDataReady={dataReady} onError={reportError}/></Suspense>
       <div className="map-caption"><span className="eyebrow">YOUR WORLD, IN POINTS</span><h1>足迹档案</h1><p>{dateLabel}</p></div>
-      <div className="map-status" role="status"><i className={busy?'status-light busy':'status-light'}/>{busy?selection?'正在更新图层 · 地图仍可操作':'正在读取完整足迹…':`${format(visibleCount)} 个筛选点位`}</div>
+      <div className="map-status" role="status"><i className={busy||hydrating?'status-light busy':'status-light'}/>{hydrating?`已显示 ${selection.loadedShards}/${selection.totalShards} 个年份 · 后台补齐中`:busy?selection?'正在绘制足迹 · 地图仍可操作':'正在读取首批足迹…':`${format(visibleCount)} 个筛选点位`}</div>
       {(error||mapError)&&<div className="error-banner" role="alert">{error||mapError}<button onClick={()=>window.location.reload()}>重新加载</button></div>}
       {!busy&&selection&&visibleCount===0&&<div className="empty-state"><strong>这个条件下没有足迹</strong><p>试试其他日期，或显示全部航迹。</p><button onClick={()=>{setFilters(DEFAULT_FILTERS);update('flights','show');}}>清除筛选</button></div>}
       <div className="map-tools" aria-label="地图操作"><button aria-label="放大地图" onClick={()=>map?.zoomIn()}>＋</button><button aria-label="缩小地图" onClick={()=>map?.zoomOut()}>−</button><button aria-label="回到波士顿" onClick={()=>map?.flyTo({center:[-71.08,42.36],zoom:10})}>◎</button><button aria-label="定位筛选范围" disabled={!selection?.count} onClick={fit}>⤢</button></div>
@@ -65,7 +66,7 @@ export default function Home() {
       {activeTab&&<section id="controls" className={`glass-panel panel-${activeTab}`} aria-label="足迹控制面板"><header className="glass-heading"><div><span>{activeTab==='style'?'APPEARANCE':activeTab==='time'?'TIME WINDOW · UTC':'JOURNEY INSIGHTS'}</span><h2>{activeTab==='style'?'样式调整':activeTab==='time'?'时间选择':'统计与航迹'}</h2></div><button aria-label="关闭面板" onClick={()=>setActiveTab(null)}>×</button></header>{activeTab==='style'&&<StylePanel appearance={appearance} update={update} setAppearance={setAppearance}/>} {activeTab==='time'&&<TimePanel meta={meta} filters={filters} setFilters={setFilters} dateMode={dateMode} setDateMode={setDateMode} month={calendarMonth} setMonth={setCalendarMonth} minDate={minDate} maxDate={maxDate} dateLabel={dateLabel} setDate={setDate} preset={preset}/>} {activeTab==='stats'&&<StatsPanel stats={placeStats} selection={selection} appearance={appearance} update={update} filters={filters} setFilters={setFilters}/>}</section>}
       <nav className="control-dock" aria-label="主要工具">{([['style','◑','样式'],['time','◷','时间'],['stats','⌁','统计']] as const).map(([value,icon,label])=><button key={value} aria-pressed={activeTab===value} aria-controls="controls" onClick={()=>setActiveTab(previous=>previous===value?null:value)}><i>{icon}</i><span>{label}</span>{value==='time'&&filters.start&&<b/>}</button>)}<span className="dock-divider"/><button onClick={fit} disabled={!selection?.count}><i>⤢</i><span>定位</span></button></nav>
     </section>
-    <footer><span>LOCAL ARCHIVE <i/> {meta?`${(meta.compressedByteLength/1024/1024).toFixed(1)} MB 下载`:'—'}</span><span>{format(meta?.count)} ORIGINAL POINTS · UTC</span></footer>
+    <footer><span>PROGRESSIVE ARCHIVE <i/> {meta?`${(meta.compressedByteLength/1024/1024).toFixed(1)} MB 全量`:'—'}</span><span>{format(meta?.count)} ORIGINAL POINTS · UTC</span></footer>
   </main>;
 }
 
