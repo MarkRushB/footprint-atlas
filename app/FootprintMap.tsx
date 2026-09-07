@@ -12,6 +12,7 @@ type Props = { selection: Selection | null; appearance: Appearance; onReady: (ma
 
 export function FootprintMap({ selection, appearance, onReady, onDataReady, onError }: Props) {
   const root = useRef<HTMLDivElement>(null), mapRef = useRef<MapboxMap | null>(null);
+  const mobileRef = useRef(false);
   const [styleRevision, setStyleRevision] = useState(0), [hasSource, setHasSource] = useState(false);
   const styleRef = useRef(MAP_STYLES[appearance.mapStyle]);
   const callbacks = useRef({ onReady, onDataReady, onError });
@@ -20,6 +21,7 @@ export function FootprintMap({ selection, appearance, onReady, onDataReady, onEr
   // Map lifetime is independent of dates, colors and data. Camera/GPU tile buffers survive UI changes.
   useEffect(() => {
     if (!root.current) return;
+    mobileRef.current = matchMedia('(pointer: coarse)').matches || innerWidth <= 760;
     setHasSource(false);
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
     if (!token) { callbacks.current.onError('未配置 Mapbox token，请在本地环境配置后重新启动。'); return; }
@@ -27,19 +29,36 @@ export function FootprintMap({ selection, appearance, onReady, onDataReady, onEr
     try {
       map = new mapboxgl.Map({
         accessToken: token, container: root.current, center: [-71.08, 42.36], zoom: 3.2,
-        minZoom: 1, maxZoom: 20, projection: 'globe', attributionControl: false,
-        fadeDuration: 0, style: styleRef.current,
+        minZoom: 1, maxZoom: 20, maxPitch: 0, projection: 'globe', attributionControl: false,
+        fadeDuration: 0, style: styleRef.current, dragRotate: false, touchPitch: false,
+        crossSourceCollisions: false, performanceMetricsCollection: false, precompilePrograms: true,
       });
     } catch { callbacks.current.onError('地图无法启动，请确认浏览器支持 WebGL。'); return; }
     mapRef.current = map;
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
+    // Mapbox internally morphs globe to Mercator between zoom 5 and 6. That
+    // transition is a known point-layer flicker zone, so switch explicitly just
+    // before it and use hysteresis when returning to the globe.
+    let detailProjection = false;
+    const syncProjection = (force = false) => {
+      const detail = detailProjection ? map.getZoom() > 4.55 : map.getZoom() >= 4.85;
+      if (force || detail !== detailProjection) map.setProjection(detail ? 'mercator' : 'globe');
+      detailProjection = detail;
+    };
+    const stage = root.current.closest('.map-stage');
+    const moving = () => { stage?.classList.add('map-moving'); syncProjection(); };
+    const zoomed = () => syncProjection();
+    const moved = () => { stage?.classList.remove('map-moving'); syncProjection(); };
     const styleLoaded = () => {
+      syncProjection(true);
       map.setFog({ color: 'rgb(7,9,14)', 'high-color': 'rgb(18,24,38)', 'horizon-blend': .08, 'space-color': 'rgb(3,4,8)', 'star-intensity': .16 });
       setHasSource(false);
       setStyleRevision(value => value + 1);
       callbacks.current.onReady(map);
     };
     map.on('style.load', styleLoaded);
+    map.on('movestart', moving); map.on('zoom', zoomed); map.on('moveend', moved);
+    if (mobileRef.current) map.touchZoomRotate.disableRotation();
     const errorHandler = (event: mapboxgl.ErrorEvent) => {
       const message = event.error?.message || '';
       if (event.error && !/abort|cancel/i.test(message)) callbacks.current.onError('地图资源加载失败。请检查网络或 Mapbox token 的域名权限。');
@@ -47,7 +66,8 @@ export function FootprintMap({ selection, appearance, onReady, onDataReady, onEr
     map.on('error', errorHandler);
     const observer = new ResizeObserver(() => map.resize());
     observer.observe(root.current);
-    return () => { observer.disconnect(); map.off('style.load', styleLoaded); map.remove(); mapRef.current = null; };
+    return () => { observer.disconnect(); stage?.classList.remove('map-moving'); map.off('style.load', styleLoaded);
+      map.off('movestart', moving); map.off('zoom', zoomed); map.off('moveend', moved); map.remove(); mapRef.current = null; };
   }, []);
 
   useEffect(() => {
@@ -65,7 +85,7 @@ export function FootprintMap({ selection, appearance, onReady, onDataReady, onEr
     if (!styleRevision || !map || !selection) return;
     // Mapbox's own worker fetches and parses this Blob. No giant JSON object on the UI thread.
     const url = URL.createObjectURL(selection.blob);
-    let finished = false;
+    let finished = false, applied = false, timer = 0;
     const finish = () => {
       if (finished) return;
       finished = true;
@@ -74,26 +94,36 @@ export function FootprintMap({ selection, appearance, onReady, onDataReady, onEr
     const loaded = (event: mapboxgl.MapSourceDataEvent) => {
       // "content" means the new GeoJSON has reached Mapbox's source worker.
       // isSourceLoaded can remain false while unrelated globe tiles are still loading.
-      if (event.sourceId === SOURCE && event.sourceDataType === 'content') finish();
+      if (applied && event.sourceId === SOURCE && event.sourceDataType === 'content') finish();
     };
     const idle = () => {
-      if (map.getSource(SOURCE) && map.isSourceLoaded(SOURCE)) finish();
+      if (applied && map.getSource(SOURCE) && map.isSourceLoaded(SOURCE)) finish();
     };
     map.on('sourcedata', loaded);
     map.on('idle', idle);
-    const source = map.getSource(SOURCE) as GeoJSONSource | undefined;
-    if (source) source.setData(url);
-    else {
-      map.addSource(SOURCE, { type: 'geojson', data: url, cluster: false, tolerance: 0, maxzoom: 18, buffer: 128 });
-      const before = map.getStyle()?.layers?.find(layer => layer.type === 'symbol')?.id;
-      map.addLayer({ id: HEAT, type: 'heatmap', source: SOURCE, layout: { visibility: 'none' },
-        paint: { 'heatmap-weight': 1, 'heatmap-opacity': .88 } }, before);
-      map.addLayer({ id: POINTS, type: 'circle', source: SOURCE,
-        paint: { 'circle-radius': 1.4, 'circle-color': '#ff5a36', 'circle-opacity': .85,
-          'circle-blur': .25, 'circle-pitch-alignment': 'map', 'circle-pitch-scale': 'viewport' } }, before);
-      setHasSource(true);
-    }
-    return () => { map.off('sourcedata', loaded); map.off('idle', idle); URL.revokeObjectURL(url); };
+    const apply = () => {
+      if (applied || map.isMoving()) return;
+      applied = true;
+      const source = map.getSource(SOURCE) as GeoJSONSource | undefined;
+      if (source) source.setData(url);
+      else {
+        map.addSource(SOURCE, { type: 'geojson', data: url, cluster: false, tolerance: 0, maxzoom: 18, buffer: 128 });
+        const before = map.getStyle()?.layers?.find(layer => layer.type === 'symbol')?.id;
+        map.addLayer({ id: HEAT, type: 'heatmap', source: SOURCE, layout: { visibility: 'none' },
+          paint: { 'heatmap-weight': 1, 'heatmap-opacity': .88 } }, before);
+        map.addLayer({ id: POINTS, type: 'circle', source: SOURCE,
+          paint: { 'circle-radius': 1.4, 'circle-color': '#ff5a36', 'circle-opacity': .85,
+            'circle-blur': mobileRef.current ? 0 : .2, 'circle-pitch-alignment': 'viewport', 'circle-pitch-scale': 'viewport' } }, before);
+        setHasSource(true);
+      }
+    };
+    const schedule = () => {
+      if (applied || map.isMoving()) return;
+      clearTimeout(timer);
+      timer = window.setTimeout(apply, mobileRef.current ? 120 : 0);
+    };
+    map.on('moveend', schedule); schedule();
+    return () => { clearTimeout(timer); map.off('moveend', schedule); map.off('sourcedata', loaded); map.off('idle', idle); URL.revokeObjectURL(url); };
   }, [styleRevision, selection]);
 
   useEffect(() => {

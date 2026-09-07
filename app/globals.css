@@ -19,6 +19,16 @@
 @media(max-width:430px){.top-count{padding:7px 9px}.dial-pair{flex-direction:column;align-items:center}.dial-control{transform:none;margin:0}.metric strong{font-size:22px}.date-fields{grid-template-columns:1fr}.place-columns{grid-template-columns:1fr}.control-dock button{min-width:50px}.control-dock button span{font-size:9px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
+/* Live backdrop filtering is expensive while a full-screen WebGL globe moves.
+   Coarse-pointer devices keep the glass tone but use a precomposited surface. */
+@media (max-width:760px), (pointer:coarse){
+ .topbar,.control-dock,.map-status,.map-tools,.map-legend,.empty-state{backdrop-filter:none;-webkit-backdrop-filter:none}
+ .topbar{background:rgba(6,8,11,.92)}
+ .control-dock{background:rgba(30,31,36,.9)}
+ .map-status,.map-tools,.map-legend{background:rgba(8,10,13,.86)}
+ .map-moving .control-dock,.map-moving .map-status,.map-moving .map-tools,.map-moving .map-legend{box-shadow:none;transition:none}
+}
+
 /* Compact control island: preserve the map as the dominant surface. */
 .glass-panel{width:min(1040px,calc(100% - 40px));max-height:min(380px,42dvh);border-radius:26px}
 .glass-heading{padding:13px 19px 6px}.glass-heading h2{margin-top:2px;font-size:17px}
