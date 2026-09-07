@@ -1,0 +1,8 @@
+/tracks-v2-*
+  Cache-Control: public, max-age=31536000, immutable
+/track-meta-v2.json
+  Cache-Control: no-cache
+/tracks-worker.js
+  Cache-Control: no-cache
+/track-engine.mjs
+  Cache-Control: no-cache
