@@ -17,11 +17,9 @@ export function selectPoints(view, meta, options) {
   const end = options.end ? Date.parse(`${options.end}T00:00:00Z`) / 1000 + 86400 : meta.maxTime + 1;
   if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) throw new Error('开始日期不能晚于结束日期。');
   let groundCount = 0, flightCount = 0;
-  const indices = [];
   for (let i = 0; i < meta.count; i++) {
     const offset = i * 20, time = view.getUint32(offset, true);
     if (time < start || time >= end) continue;
-    indices.push(i);
     if (isFlight(view, offset, meta, options)) flightCount++; else groundCount++;
   }
   const ground = new Float64Array(groundCount * 2), flights = new Float64Array(flightCount * 2);
@@ -30,8 +28,9 @@ export function selectPoints(view, meta, options) {
   const bounds = [180, 90, -180, -90], days = new Set();
   const groundDays = new Set(), flightDays = new Set();
   const groundBounds = [180, 90, -180, -90], flightBounds = [180, 90, -180, -90];
-  for (const i of indices) {
+  for (let i = 0; i < meta.count; i++) {
     const offset = i * 20, time = view.getUint32(offset, true);
+    if (time < start || time >= end) continue;
     const lon = view.getInt32(offset + 4, true) / meta.scale, lat = view.getInt32(offset + 8, true) / meta.scale;
     bounds[0] = Math.min(bounds[0], lon); bounds[1] = Math.min(bounds[1], lat);
     bounds[2] = Math.max(bounds[2], lon); bounds[3] = Math.max(bounds[3], lat);
@@ -48,9 +47,9 @@ export function selectPoints(view, meta, options) {
       ground[g++] = lon; ground[g++] = lat;
     }
   }
-  return { ground, flights, colors, groundCount, flightCount, count: indices.length, days: days.size, unknownAltitude,
+  return { ground, flights, colors, groundCount, flightCount, count: groundCount + flightCount, days: days.size, unknownAltitude,
     groundDays: groundDays.size, flightDays: flightDays.size,
-    bounds: indices.length ? bounds : null, groundBounds: groundCount ? groundBounds : null, flightBounds: flightCount ? flightBounds : null };
+    bounds: groundCount + flightCount ? bounds : null, groundBounds: groundCount ? groundBounds : null, flightBounds: flightCount ? flightBounds : null };
 }
 
 export function makeHeatData(result) {
@@ -77,6 +76,24 @@ export function combineSelections(parts) {
   return { count: sum('count'), groundCount: sum('groundCount'), flightCount: sum('flightCount'), days: sum('days'),
     groundDays: sum('groundDays'), flightDays: sum('flightDays'), unknownAltitude: sum('unknownAltitude'),
     bounds: mergeBounds('bounds'), groundBounds: mergeBounds('groundBounds'), flightBounds: mergeBounds('flightBounds') };
+}
+
+export function combineBinarySelections(parts) {
+  const groundCount = parts.reduce((total, part) => total + part.groundCount, 0);
+  const flightCount = parts.reduce((total, part) => total + part.flightCount, 0);
+  const groundPositions = new Float64Array(groundCount * 2);
+  const groundColors = new Uint8Array(groundCount * 4);
+  const flightPositions = new Float64Array(flightCount * 2);
+  let groundOffset = 0, colorOffset = 0, flightOffset = 0;
+  for (const part of parts) {
+    groundPositions.set(part.ground, groundOffset);
+    groundColors.set(part.colors, colorOffset);
+    flightPositions.set(part.flights, flightOffset);
+    groundOffset += part.ground.length;
+    colorOffset += part.colors.length;
+    flightOffset += part.flights.length;
+  }
+  return { groundPositions, groundColors, flightPositions };
 }
 
 export function makeCombinedHeatData(parts) {

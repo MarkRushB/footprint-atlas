@@ -18,6 +18,7 @@ export type Selection = {
   revision: number; renderId: number; count: number; groundCount: number; flightCount: number; days: number;
   groundDays: number; flightDays: number;
   unknownAltitude: number; bounds: [number, number, number, number] | null; milliseconds: number; blob: Blob;
+  groundPositions: Float64Array; groundColors: Uint8Array; flightPositions: Float64Array;
   groundBounds: [number, number, number, number] | null; flightBounds: [number, number, number, number] | null;
   complete: boolean; loadedShards: number; totalShards: number; loadedPoints: number; totalPoints: number;
 };

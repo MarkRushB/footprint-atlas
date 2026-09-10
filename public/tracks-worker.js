@@ -1,4 +1,4 @@
-import { validateData, selectPoints, combineSelections, makeCombinedHeatData } from './track-engine.mjs';
+import { validateData, selectPoints, combineSelections, combineBinarySelections, makeCombinedHeatData } from './track-engine.mjs';
 
 let meta, activeRevision = 0;
 const cache = new Map();
@@ -39,12 +39,14 @@ function relevantShards(options) {
 
 function postSelection(revision, options, parts, shards, targetCount, complete, begun) {
   const stats = combineSelections(parts);
+  const binary = combineBinarySelections(parts);
   const blob = new Blob([JSON.stringify(makeCombinedHeatData(parts))], { type: 'application/json' });
-  self.postMessage({ type: 'selection', revision, renderId: revision * 2 + (complete ? 1 : 0), ...stats, blob,
+  const message = { type: 'selection', revision, renderId: revision * 2 + (complete ? 1 : 0), ...stats, ...binary, blob,
     complete, loadedShards: shards.length, totalShards: targetCount,
     loadedPoints: shards.reduce((sum, shard) => sum + shard.count, 0),
     totalPoints: relevantShards(options).reduce((sum, shard) => sum + shard.count, 0),
-    milliseconds: performance.now() - begun });
+    milliseconds: performance.now() - begun };
+  self.postMessage(message, [binary.groundPositions.buffer, binary.groundColors.buffer, binary.flightPositions.buffer]);
 }
 
 self.onmessage = async ({ data }) => {

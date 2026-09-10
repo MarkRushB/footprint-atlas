@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 const nativeFetch = globalThis.fetch;
+const origin = process.argv[2] || 'http://localhost:3000';
 globalThis.fetch = async (url, options) => {
-  const origin = process.argv[2] || 'http://localhost:3000';
   try { return await nativeFetch(new URL(url, origin), options); }
   catch (error) {
     if (process.argv[2]) throw error;
@@ -11,19 +11,20 @@ globalThis.fetch = async (url, options) => {
 };
 const started = performance.now();
 const result = new Promise((resolve, reject) => {
-  globalThis.self = { postMessage: async message => {
+  globalThis.self = { location: { href: new URL('tracks-worker.js', origin).href }, postMessage: async message => {
     try {
       if (message.type === 'error') throw new Error(message.message);
       if (message.type === 'ready') {
         assert.equal(message.meta.count, 791220);
         self.onmessage({ data: { type:'select', revision:1, options: { start:'',end:'',altitude:2000,speedAssist:true,speed:55 } } });
       }
-      if (message.type === 'selection') {
+      if (message.type === 'selection' && message.complete) {
         assert.equal(message.count,791220);
-        const data = JSON.parse(await message.blob.text());
-        assert.equal(data.features.reduce((sum,feature)=>sum+feature.geometry.coordinates.length,0),791220);
-        assert.equal(data.features.filter(feature=>feature.properties.kind==='flight')[0].geometry.coordinates.length,message.flightCount);
-        resolve({ passed:true, points:message.count, workerMs:Math.round(message.milliseconds), totalMs:Math.round(performance.now()-started), featureGroups:data.features.length });
+        assert.equal(message.groundPositions.length,message.groundCount*2);
+        assert.equal(message.groundColors.length,message.groundCount*4);
+        assert.equal(message.flightPositions.length,message.flightCount*2);
+        assert(message.groundColors.some(value=>value>0));
+        resolve({ passed:true, points:message.count, workerMs:Math.round(message.milliseconds), totalMs:Math.round(performance.now()-started), binaryMiB:+((message.groundPositions.byteLength+message.groundColors.byteLength+message.flightPositions.byteLength)/1024/1024).toFixed(2) });
       }
     } catch(error) { reject(error); }
   } };
